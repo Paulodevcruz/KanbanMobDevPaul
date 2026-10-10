@@ -1,0 +1,77 @@
+<ion-content [fullscreen]="true">
+  <main class="page-shell">
+    <section class="login-card" *ngIf="!user">
+      <div class="brand-mark">K</div>
+      <p class="eyebrow">Seu espaço de trabalho</p>
+      <h1>Kanban<span>Mob</span></h1>
+      <p class="login-copy">Organize suas tarefas, acompanhe o progresso e mantenha tudo em movimento.</p>
+
+      <div class="setup-alert" *ngIf="!configured">
+        <strong>Firebase ainda não configurado</strong>
+        <span>Insira as credenciais do seu projeto Firebase em <code>src/environments/environment.ts</code> e <code>environment.prod.ts</code>.</span>
+      </div>
+      <form (ngSubmit)="authenticate()">
+        <label>E-mail<input type="email" name="email" [(ngModel)]="email" placeholder="voce@exemplo.com" autocomplete="email" required /></label>
+        <label>Senha<input type="password" name="password" [(ngModel)]="password" placeholder="Mínimo de 6 caracteres" [attr.autocomplete]="isRegistering ? 'new-password' : 'current-password'" required minlength="6" /></label>
+        <button class="button primary full" type="submit" [disabled]="busy || !configured">{{ busy ? 'Aguarde…' : isRegistering ? 'Criar conta' : 'Entrar' }}</button>
+      </form>
+      <button class="text-button full" type="button" (click)="isRegistering = !isRegistering">{{ isRegistering ? 'Já tem uma conta? Entrar' : 'Primeira vez aqui? Criar conta' }}</button>
+      <p class="error-message" *ngIf="errorMessage">{{ errorMessage }}</p>
+    </section>
+
+    <ng-container *ngIf="user">
+      <header class="topbar">
+        <a class="brand" href="/home"><span class="brand-mark small">K</span><span>Kanban<strong>Mob</strong></span></a>
+        <div class="account"><span class="avatar">{{ (user.email || 'K').charAt(0).toUpperCase() }}</span><span class="account-email">{{ user.email }}</span><button class="icon-button" type="button" aria-label="Sair" (click)="logout()">Sair</button></div>
+      </header>
+
+      <section class="welcome-row">
+        <div><p class="eyebrow">Workspace</p><h1>Meus quadros</h1><p class="subtitle">Uma visão clara do que está acontecendo.</p></div>
+        <button class="button primary" type="button" (click)="showBoardForm = !showBoardForm">＋ Novo quadro</button>
+      </section>
+
+      <form class="create-board" *ngIf="showBoardForm" (ngSubmit)="createBoard()">
+        <div class="form-heading"><div><p class="eyebrow">Novo espaço</p><h2>Criar quadro</h2></div><button type="button" class="icon-button" aria-label="Fechar" (click)="showBoardForm = false">✕</button></div>
+        <div class="form-grid">
+          <label>Nome do quadro<input name="boardName" [(ngModel)]="boardName" maxlength="60" placeholder="Ex.: Lançamento do produto" required /></label>
+          <label>Descrição<input name="boardDescription" [(ngModel)]="boardDescription" maxlength="140" placeholder="O que este quadro acompanha?" /></label>
+          <label>Seu nível de acesso<select name="boardPermission" [(ngModel)]="boardPermission"><option value="owner">Proprietário</option><option value="editor">Editor</option><option value="viewer">Visualizador</option></select></label>
+        </div>
+        <button class="button primary" type="submit" [disabled]="busy">Criar quadro</button>
+      </form>
+
+      <p class="error-message global-error" *ngIf="errorMessage">{{ errorMessage }}</p>
+      <div class="layout" *ngIf="boards.length; else emptyBoards">
+        <aside class="board-sidebar"><p class="sidebar-title">SEUS QUADROS <span>{{ boards.length }}</span></p>
+          <button class="board-link" *ngFor="let board of boards" [class.active]="selectedBoardId === board.id" (click)="selectedBoardId = board.id" type="button">
+            <span class="board-dot"></span><span class="board-link-copy"><strong>{{ board.name }}</strong><small>{{ board.description || 'Sem descrição' }}</small></span>
+            <span class="permission-chip" [class.viewer]="board.permission === 'viewer'">{{ permissionLabel(board.permission) }}</span>
+          </button>
+        </aside>
+
+        <section class="board-area" *ngIf="selectedBoard as board">
+          <div class="board-heading"><div><div class="title-line"><h2>{{ board.name }}</h2><span class="permission-chip" [class.viewer]="board.permission === 'viewer'">{{ permissionLabel(board.permission) }}</span></div><p>{{ board.description || 'Seu espaço para planejar e acompanhar o trabalho.' }}</p><small>Proprietário: {{ board.ownerEmail }}</small></div></div>
+
+          <form class="task-composer" *ngIf="canEdit" (ngSubmit)="addTask()">
+            <input name="taskText" [(ngModel)]="taskText" maxlength="80" placeholder="Descreva uma nova tarefa…" required />
+            <select name="newTaskStatus" [(ngModel)]="newTaskStatus" aria-label="Coluna da tarefa"><option *ngFor="let status of statuses" [value]="status.id">{{ status.label }}</option></select>
+            <button class="button primary" type="submit" [disabled]="busy || !taskText.trim()">Adicionar</button>
+          </form>
+          <p class="viewer-note" *ngIf="!canEdit">Você tem acesso de visualização a este quadro.</p>
+
+          <div class="columns">
+            <section class="kanban-column" *ngFor="let status of statuses">
+              <header class="column-header"><div><span class="status-dot" [class]="'status-dot ' + status.id"></span><h3>{{ status.label }}</h3></div><span class="count">{{ tasksFor(status.id).length }}</span></header>
+              <article class="task-card" *ngFor="let task of tasksFor(status.id)">
+                <p>{{ task.text }}</p>
+                <div class="task-footer" *ngIf="canEdit"><select [ngModel]="task.status" [ngModelOptions]="{standalone: true}" [attr.aria-label]="'Mover ' + task.text" (ngModelChange)="moveTask(task, $event)"><option *ngFor="let option of statuses" [value]="option.id">{{ option.label }}</option></select><button class="delete-button" type="button" (click)="deleteTask(task)" [attr.aria-label]="'Excluir ' + task.text">Excluir</button></div>
+              </article>
+              <p class="column-empty" *ngIf="!tasksFor(status.id).length">Nenhuma tarefa por aqui</p>
+            </section>
+          </div>
+        </section>
+      </div>
+      <ng-template #emptyBoards><section class="empty-state"><div class="empty-icon">▦</div><h2>Seu primeiro quadro começa aqui</h2><p>Crie um quadro para organizar tarefas e acompanhar cada etapa do trabalho.</p><button class="button primary" type="button" (click)="showBoardForm = true">＋ Criar quadro</button></section></ng-template>
+    </ng-container>
+  </main>
+</ion-content>
