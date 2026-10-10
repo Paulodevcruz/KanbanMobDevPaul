@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { IonContent } from '@ionic/angular';
 import { User } from 'firebase/auth';
@@ -34,7 +34,10 @@ export class HomePage implements OnInit, OnDestroy {
   private stopAuth?: () => void;
   private stopBoards?: () => void;
 
-  constructor(private readonly kanban: KanbanService) {}
+  constructor(
+    private readonly kanban: KanbanService,
+    private readonly cdr: ChangeDetectorRef
+  ) {}
 
   get configured(): boolean { return this.kanban.configured; }
   get selectedBoard(): KanbanBoard | undefined { return this.boards.find((board) => board.id === this.selectedBoardId); }
@@ -50,10 +53,18 @@ export class HomePage implements OnInit, OnDestroy {
           this.stopBoards = this.kanban.watchBoards(user, (boards) => {
             this.boards = boards;
             if (!boards.some((board) => board.id === this.selectedBoardId)) this.selectedBoardId = boards[0]?.id ?? '';
-          }, (error) => this.showError(error));
+            this.cdr.markForCheck();
+          }, (error) => {
+            this.showError(error);
+            this.cdr.markForCheck();
+          });
         }
+        this.cdr.markForCheck();
       },
-      error: (error) => this.showError(error)
+      error: (error) => {
+        this.showError(error);
+        this.cdr.markForCheck();
+      }
     });
     this.stopAuth = () => subscription.unsubscribe();
   }
@@ -84,20 +95,67 @@ export class HomePage implements OnInit, OnDestroy {
   async addTask(): Promise<void> {
     const board = this.selectedBoard;
     if (!board || !this.canEdit || !this.taskText.trim()) return;
-    const tasks = [...board.tasks, { id: crypto.randomUUID(), text: this.taskText.trim(), status: this.newTaskStatus }];
-    await this.saveTasks(board, tasks, () => { this.taskText = ''; });
+    const previousTasks = [...board.tasks];
+    const text = this.taskText.trim();
+    const newTask: KanbanTask = { id: crypto.randomUUID(), text, status: this.newTaskStatus };
+    const updatedTasks = [...board.tasks, newTask];
+
+    board.tasks = updatedTasks;
+    this.taskText = '';
+    this.cdr.markForCheck();
+
+    try {
+      await this.kanban.saveTasks(board, updatedTasks);
+    } catch (error) {
+      board.tasks = previousTasks;
+      this.taskText = text;
+      this.showError(error);
+      this.cdr.markForCheck();
+    }
   }
 
   async moveTask(task: KanbanTask, status: TaskStatus): Promise<void> {
     const board = this.selectedBoard;
-    if (!board || !this.canEdit) return;
-    await this.saveTasks(board, board.tasks.map((item) => item.id === task.id ? { ...item, status } : item));
+    if (!board || !this.canEdit || task.status === status) return;
+    const previousTasks = [...board.tasks];
+    const updatedTasks = board.tasks.map((item) => (item.id === task.id ? { ...item, status } : item));
+
+    board.tasks = updatedTasks;
+    this.cdr.markForCheck();
+
+    try {
+      await this.kanban.saveTasks(board, updatedTasks);
+    } catch (error) {
+      board.tasks = previousTasks;
+      this.showError(error);
+      this.cdr.markForCheck();
+    }
   }
 
   async deleteTask(task: KanbanTask): Promise<void> {
     const board = this.selectedBoard;
     if (!board || !this.canEdit) return;
-    await this.saveTasks(board, board.tasks.filter((item) => item.id !== task.id));
+    const previousTasks = [...board.tasks];
+    const updatedTasks = board.tasks.filter((item) => item.id !== task.id);
+
+    board.tasks = updatedTasks;
+    this.cdr.markForCheck();
+
+    try {
+      await this.kanban.saveTasks(board, updatedTasks);
+    } catch (error) {
+      board.tasks = previousTasks;
+      this.showError(error);
+      this.cdr.markForCheck();
+    }
+  }
+
+  trackById(_index: number, item: { id: string }): string {
+    return item.id;
+  }
+
+  trackByStatus(_index: number, item: { id: TaskStatus }): string {
+    return item.id;
   }
 
   tasksFor(status: TaskStatus): KanbanTask[] { return this.selectedBoard?.tasks.filter((task) => task.status === status) ?? []; }
@@ -106,14 +164,17 @@ export class HomePage implements OnInit, OnDestroy {
     return ({ owner: 'Proprietário', editor: 'Editor', viewer: 'Visualizador' })[permission];
   }
 
-  private async saveTasks(board: KanbanBoard, tasks: KanbanTask[], success?: () => void): Promise<void> {
-    await this.perform(async () => { await this.kanban.saveTasks(board, tasks); success?.(); });
-  }
-
   private async perform(action: () => Promise<void>): Promise<void> {
     this.busy = true;
     this.errorMessage = '';
-    try { await action(); } catch (error) { this.showError(error); } finally { this.busy = false; }
+    try {
+      await action();
+    } catch (error) {
+      this.showError(error);
+    } finally {
+      this.busy = false;
+      this.cdr.markForCheck();
+    }
   }
 
   private showError(error: unknown): void {

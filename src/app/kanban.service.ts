@@ -1,6 +1,6 @@
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import { Auth, User, createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { Firestore, addDoc, collection, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
+import { Firestore, addDoc, collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { Observable } from 'rxjs';
 import { firebaseAuth, firebaseDb } from './firebase';
 
@@ -31,6 +31,8 @@ export class KanbanService {
   private readonly auth = firebaseAuth as Auth | null;
   private readonly db = firebaseDb as Firestore | null;
 
+  constructor(private readonly ngZone: NgZone) {}
+
   authChanges(): Observable<User | null> {
     return new Observable((subscriber) => {
       if (!this.auth) {
@@ -38,7 +40,11 @@ export class KanbanService {
         subscriber.complete();
         return;
       }
-      return onAuthStateChanged(this.auth, (user) => subscriber.next(user), (error) => subscriber.error(error));
+      return onAuthStateChanged(
+        this.auth,
+        (user) => this.ngZone.run(() => subscriber.next(user)),
+        (error) => this.ngZone.run(() => subscriber.error(error))
+      );
     });
   }
 
@@ -58,28 +64,37 @@ export class KanbanService {
 
   watchBoards(user: User, next: (boards: KanbanBoard[]) => void, error: (error: Error) => void): () => void {
     this.requireFirebase();
-    const boardsQuery = query(collection(this.db!, 'boards'), orderBy('updatedAt', 'desc'));
-    return onSnapshot(boardsQuery, (snapshot) => {
-      const boards = snapshot.docs
-        .map((item) => {
-          const data = item.data();
-          const isOwner = data['ownerId'] === user.uid;
-          const permission = isOwner ? 'owner' : data['members']?.[user.uid];
-          return {
-            id: item.id,
-            name: String(data['name'] ?? ''),
-            description: String(data['description'] ?? ''),
-            ownerId: String(data['ownerId'] ?? ''),
-            ownerEmail: String(data['ownerEmail'] ?? ''),
-            memberIds: Object.keys(data['members'] ?? {}),
-            permission: permission as BoardPermission,
-            tasks: Array.isArray(data['tasks']) ? data['tasks'] as KanbanTask[] : [],
-            updatedAt: Number(data['updatedAt'] ?? 0)
-          };
-        })
-        .filter((board) => board.permission);
-      next(boards);
-    }, error);
+    const boardsQuery = query(collection(this.db!, 'boards'), where('memberIds', 'array-contains', user.uid));
+    return onSnapshot(
+      boardsQuery,
+      (snapshot) => {
+        const boards = snapshot.docs
+          .map((item) => {
+            const data = item.data();
+            const isOwner = data['ownerId'] === user.uid;
+            const permission = isOwner ? 'owner' : data['members']?.[user.uid];
+            return {
+              id: item.id,
+              name: String(data['name'] ?? ''),
+              description: String(data['description'] ?? ''),
+              ownerId: String(data['ownerId'] ?? ''),
+              ownerEmail: String(data['ownerEmail'] ?? ''),
+              memberIds: Object.keys(data['members'] ?? {}),
+              permission: permission as BoardPermission,
+              tasks: Array.isArray(data['tasks']) ? (data['tasks'] as KanbanTask[]) : [],
+              updatedAt: Number(data['updatedAt'] ?? 0),
+            };
+          })
+          .filter((board) => board.permission);
+
+        this.ngZone.run(() => {
+          next(boards.sort((first, second) => second.updatedAt - first.updatedAt));
+        });
+      },
+      (err) => {
+        this.ngZone.run(() => error(err));
+      }
+    );
   }
 
   async createBoard(user: User, name: string, description: string, permission: BoardPermission): Promise<void> {
@@ -90,8 +105,9 @@ export class KanbanService {
       ownerId: user.uid,
       ownerEmail: user.email ?? '',
       members: { [user.uid]: permission },
+      memberIds: [user.uid],
       tasks: [],
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
     });
   }
 

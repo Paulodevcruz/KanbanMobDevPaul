@@ -43,7 +43,7 @@
       <p class="error-message global-error" *ngIf="errorMessage">{{ errorMessage }}</p>
       <div class="layout" *ngIf="boards.length; else emptyBoards">
         <aside class="board-sidebar"><p class="sidebar-title">SEUS QUADROS <span>{{ boards.length }}</span></p>
-          <button class="board-link" *ngFor="let board of boards" [class.active]="selectedBoardId === board.id" (click)="selectedBoardId = board.id" type="button">
+          <button class="board-link" *ngFor="let board of boards; trackBy: trackById" [class.active]="selectedBoardId === board.id" (click)="selectedBoardId = board.id" type="button">
             <span class="board-dot"></span><span class="board-link-copy"><strong>{{ board.name }}</strong><small>{{ board.description || 'Sem descrição' }}</small></span>
             <span class="permission-chip" [class.viewer]="board.permission === 'viewer'">{{ permissionLabel(board.permission) }}</span>
           </button>
@@ -54,17 +54,17 @@
 
           <form class="task-composer" *ngIf="canEdit" (ngSubmit)="addTask()">
             <input name="taskText" [(ngModel)]="taskText" maxlength="80" placeholder="Descreva uma nova tarefa…" required />
-            <select name="newTaskStatus" [(ngModel)]="newTaskStatus" aria-label="Coluna da tarefa"><option *ngFor="let status of statuses" [value]="status.id">{{ status.label }}</option></select>
+            <select name="newTaskStatus" [(ngModel)]="newTaskStatus" aria-label="Coluna da tarefa"><option *ngFor="let status of statuses; trackBy: trackByStatus" [value]="status.id">{{ status.label }}</option></select>
             <button class="button primary" type="submit" [disabled]="busy || !taskText.trim()">Adicionar</button>
           </form>
           <p class="viewer-note" *ngIf="!canEdit">Você tem acesso de visualização a este quadro.</p>
 
           <div class="columns">
-            <section class="kanban-column" *ngFor="let status of statuses">
+            <section class="kanban-column" *ngFor="let status of statuses; trackBy: trackByStatus">
               <header class="column-header"><div><span class="status-dot" [class]="'status-dot ' + status.id"></span><h3>{{ status.label }}</h3></div><span class="count">{{ tasksFor(status.id).length }}</span></header>
-              <article class="task-card" *ngFor="let task of tasksFor(status.id)">
+              <article class="task-card" *ngFor="let task of tasksFor(status.id); trackBy: trackById">
                 <p>{{ task.text }}</p>
-                <div class="task-footer" *ngIf="canEdit"><select [ngModel]="task.status" [ngModelOptions]="{standalone: true}" [attr.aria-label]="'Mover ' + task.text" (ngModelChange)="moveTask(task, $event)"><option *ngFor="let option of statuses" [value]="option.id">{{ option.label }}</option></select><button class="delete-button" type="button" (click)="deleteTask(task)" [attr.aria-label]="'Excluir ' + task.text">Excluir</button></div>
+                <div class="task-footer" *ngIf="canEdit"><select [ngModel]="task.status" [ngModelOptions]="{standalone: true}" [attr.aria-label]="'Mover ' + task.text" (ngModelChange)="moveTask(task, $event)"><option *ngFor="let option of statuses; trackBy: trackByStatus" [value]="option.id">{{ option.label }}</option></select><button class="delete-button" type="button" (click)="deleteTask(task)" [attr.aria-label]="'Excluir ' + task.text">Excluir</button></div>
               </article>
               <p class="column-empty" *ngIf="!tasksFor(status.id).length">Nenhuma tarefa por aqui</p>
             </section>
